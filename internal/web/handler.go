@@ -101,19 +101,19 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, models.ErrRestricted):
 		statusCode = http.StatusForbidden
 		code = "RESTRICTED"
-		message = "Requested resource is private, restricted or unplayable"
+		message = "Access to the webpage or resource was blocked, private, or restricted"
 
 	// 404 Not Found
 	case errors.Is(err, models.ErrNotFound), errors.Is(err, llmgateway.ErrModelNotFound):
 		statusCode = http.StatusNotFound
 		code = "NOT_FOUND"
-		message = "Requested resource or model was not found"
+		message = "Requested resource, webpage or model was not found"
 
 	// 422 Unprocessable Entity
 	case errors.Is(err, models.ErrNoContent), errors.Is(err, llmgateway.ErrEmptyResponse):
 		statusCode = http.StatusUnprocessableEntity
 		code = "NO_CONTENT"
-		message = "No extractable text or content found in source"
+		message = "No extractable text or article content found in source"
 
 	// 429 Too Many Requests
 	case errors.Is(err, models.ErrRateLimitExceeded), errors.Is(err, llmgateway.ErrRateLimit):

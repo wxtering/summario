@@ -13,7 +13,7 @@ import (
 // findAgentCandidateInTree checks if any candidate instruction file exists in tree entries.
 func findAgentCandidateInTree(entries []*gh.TreeEntry, candidates []string) string {
 	if len(entries) == 0 {
-		return candidates[0]
+		return ""
 	}
 
 	existingPaths := make(map[string]bool, len(entries))

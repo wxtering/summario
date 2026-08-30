@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	baseSystemPrompt = "You are a professional AI summarizer. Your task is to extract the core ideas, key insights, and important context from the provided text."
+	baseSystemPrompt = "You are an objective AI summarizer. Your task is to extract the core ideas, key insights, and factual context from the provided text for informational, educational, and news analysis purposes."
 
 	strategyTLDRInstruction         = "Provide a concise TL;DR summary in 2-4 sentences capturing the main point."
 	strategyDetailedInstruction     = "Provide a comprehensive, section-by-section structured summary covering all key details."

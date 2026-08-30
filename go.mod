@@ -8,7 +8,6 @@ require (
 	github.com/ilyakaznacheev/cleanenv v1.5.0
 	github.com/joho/godotenv v1.5.1
 	github.com/markusmobius/go-trafilatura v1.12.2
-	github.com/sashabaranov/go-openai v1.42.0
 	resty.dev/v3 v3.0.0-rc.3
 )
 

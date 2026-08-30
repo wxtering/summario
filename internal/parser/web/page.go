@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -48,17 +49,24 @@ func (w *WebParser) ParseWebPage(ctx context.Context, source string) (string, er
 			)
 			return fcContent, nil
 		}
-		// If both Trafilatura and Firecrawl failed during fallback, wrap in ErrUpstreamFailed
-		if fcErr != nil && err != nil {
-			return "", fmt.Errorf("%w: trafilatura (%v), firecrawl fallback (%v)", models.ErrUpstreamFailed, err, fcErr)
-		}
-		if fcErr != nil && len(strings.TrimSpace(content)) < minMeaningfulContentLength {
-			return "", fmt.Errorf("%w: content too short and firecrawl fallback failed: %w", models.ErrNoContent, fcErr)
+
+		// When both fail, preserve and return the true category of error:
+		if fcErr != nil {
+			switch {
+			case errors.Is(fcErr, models.ErrNotFound) || errors.Is(err, models.ErrNotFound):
+				return "", fmt.Errorf("%w: webpage not found (%v)", models.ErrNotFound, fcErr)
+			case errors.Is(fcErr, models.ErrRestricted) || errors.Is(err, models.ErrRestricted):
+				return "", fmt.Errorf("%w: access blocked by remote anti-bot (%v)", models.ErrRestricted, fcErr)
+			case errors.Is(fcErr, models.ErrNoContent) || len(strings.TrimSpace(content)) < minMeaningfulContentLength:
+				return "", fmt.Errorf("%w: webpage has no extractable content (%v)", models.ErrNoContent, fcErr)
+			default:
+				return "", fmt.Errorf("%w: trafilatura (%v), firecrawl (%v)", models.ErrUpstreamFailed, err, fcErr)
+			}
 		}
 	}
 
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", models.ErrUpstreamFailed, err)
+		return "", err
 	}
 	if len(strings.TrimSpace(content)) < minMeaningfulContentLength {
 		return "", fmt.Errorf("%w: extracted webpage content is too short (%d chars)", models.ErrNoContent, len(strings.TrimSpace(content)))

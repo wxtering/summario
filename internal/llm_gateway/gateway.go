@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 	"tldr/internal/models"
-	"tldr/internal/utils"
 
-	"github.com/sashabaranov/go-openai"
+	"resty.dev/v3"
 )
 
 var (
@@ -25,10 +25,19 @@ var (
 	ErrUnsupportedProvider = errors.New("unsupported llm provider")
 )
 
-type LlmGateway struct{}
+type LlmGateway struct {
+	client *resty.Client
+}
 
 func New() *LlmGateway {
-	return &LlmGateway{}
+	client := resty.New().
+		SetTimeout(120 * time.Second).
+		SetRetryCount(1).
+		SetRetryWaitTime(500 * time.Millisecond)
+
+	return &LlmGateway{
+		client: client,
+	}
 }
 
 type RequestParams struct {
@@ -52,6 +61,45 @@ type LLMResponse struct {
 type rawJSONResponse struct {
 	Title   string `json:"title"`
 	Summary string `json:"summary"`
+}
+
+type chatCompletionRequest struct {
+	Model          string                  `json:"model"`
+	ResponseFormat *chatResponseFormatType `json:"response_format,omitempty"`
+	Messages       []chatCompletionMessage `json:"messages"`
+}
+
+type chatResponseFormatType struct {
+	Type string `json:"type"`
+}
+
+type chatCompletionMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type chatCompletionResponse struct {
+	Choices []Choice           `json:"choices"`
+	Usage   Usage              `json:"usage"`
+	Error   *openAIErrorDetail `json:"error,omitempty"`
+}
+
+type Choice struct {
+	Index        int                   `json:"index"`
+	Message      chatCompletionMessage `json:"message"`
+	FinishReason string                `json:"finish_reason"`
+}
+
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
+type openAIErrorDetail struct {
+	Message string `json:"message"`
+	Type    string `json:"type"`
+	Code    any    `json:"code"`
 }
 
 func (g *LlmGateway) GenerateSummary(ctx context.Context, p RequestParams) (LLMResponse, error) {
@@ -83,41 +131,59 @@ func (g *LlmGateway) openAIRequest(ctx context.Context, p RequestParams) (LLMRes
 	if p.ProviderConfig.ApiKey == "" {
 		return LLMResponse{}, ErrAPIKeyRequired
 	}
-	cfg := openai.DefaultConfig(p.ProviderConfig.ApiKey)
-	cfg.BaseURL = p.ProviderConfig.Url
-	client := openai.NewClientWithConfig(cfg)
 
-	resp, err := client.CreateChatCompletion(
-		ctx,
-		openai.ChatCompletionRequest{
-			Model: p.ProviderConfig.Model,
-			ResponseFormat: &openai.ChatCompletionResponseFormat{
-				Type: openai.ChatCompletionResponseFormatTypeJSONObject,
+	baseURL := strings.TrimRight(p.ProviderConfig.Url, "/")
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
+	}
+	endpointURL := baseURL + "/chat/completions"
+
+	reqBody := chatCompletionRequest{
+		Model: p.ProviderConfig.Model,
+		ResponseFormat: &chatResponseFormatType{
+			Type: "json_object",
+		},
+		Messages: []chatCompletionMessage{
+			{
+				Role:    "system",
+				Content: p.SystemPrompt,
 			},
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleSystem,
-					Content: p.SystemPrompt,
-				},
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: p.Text,
-				},
+			{
+				Role:    "user",
+				Content: p.Text,
 			},
 		},
-	)
-	if err != nil {
-		return LLMResponse{}, mapOpenAIError(err)
 	}
 
-	if len(resp.Choices) == 0 {
+	var chatResp chatCompletionResponse
+	resp, err := g.client.R().
+		SetContext(ctx).
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Authorization", "Bearer "+p.ProviderConfig.ApiKey).
+		SetBody(reqBody).
+		SetResult(&chatResp).
+		Post(endpointURL)
+
+	if err != nil {
+		return LLMResponse{}, fmt.Errorf("%w: %w", ErrProviderDown, err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return LLMResponse{}, mapHTTPError(resp.StatusCode(), chatResp.Error)
+	}
+
+	if len(chatResp.Choices) == 0 {
 		return LLMResponse{}, ErrEmptyResponse
 	}
 
-	content := resp.Choices[0].Message.Content
+	content := strings.TrimSpace(chatResp.Choices[0].Message.Content)
+	if content == "" {
+		return LLMResponse{}, fmt.Errorf("%w: llm generated empty content", ErrEmptyResponse)
+	}
+
 	cleanedContent := cleanJSONContent(content)
 	var raw rawJSONResponse
-	if err := json.Unmarshal([]byte(cleanedContent), &raw); err != nil || raw.Summary == "" {
+	if err := json.Unmarshal([]byte(cleanedContent), &raw); err != nil || strings.TrimSpace(raw.Summary) == "" {
 		raw.Summary = content
 	}
 
@@ -126,9 +192,9 @@ func (g *LlmGateway) openAIRequest(ctx context.Context, p RequestParams) (LLMRes
 		Summary:      raw.Summary,
 		Provider:     p.ProviderConfig.Provider,
 		Model:        p.ProviderConfig.Model,
-		InputTokens:  resp.Usage.PromptTokens,
-		OutputTokens: resp.Usage.CompletionTokens,
-		TotalTokens:  resp.Usage.TotalTokens,
+		InputTokens:  chatResp.Usage.PromptTokens,
+		OutputTokens: chatResp.Usage.CompletionTokens,
+		TotalTokens:  chatResp.Usage.TotalTokens,
 	}, nil
 }
 
@@ -146,37 +212,29 @@ func cleanJSONContent(content string) string {
 	return content
 }
 
-func mapOpenAIError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return err
-	}
-
-	// 1. OpenAI application errors
-	if apiErr, ok := utils.AsType[*openai.APIError](err); ok {
-		switch apiErr.HTTPStatusCode {
-		case 401, 403:
-			return ErrInvalidAPIKey
-		case 404:
-			return ErrModelNotFound
-		case 429:
-			if apiErr.Type == "insufficient_quota" || fmt.Sprint(apiErr.Code) == "insufficient_quota" {
-				return ErrQuotaExceeded
-			}
-			return ErrRateLimit
-		case 500, 502, 503, 504:
-			return ErrProviderDown
+func mapHTTPError(statusCode int, errBody *openAIErrorDetail) error {
+	var errType, errCode, errMsg string
+	if errBody != nil {
+		errType = errBody.Type
+		errMsg = errBody.Message
+		if errBody.Code != nil {
+			errCode = fmt.Sprint(errBody.Code)
 		}
 	}
 
-	// 2. Network / infrastructure errors
-	if reqErr, ok := utils.AsType[*openai.RequestError](err); ok {
-		if reqErr.HTTPStatusCode >= 500 || reqErr.HTTPStatusCode == 429 {
-			return ErrProviderDown
+	switch statusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return ErrInvalidAPIKey
+	case http.StatusNotFound:
+		return ErrModelNotFound
+	case http.StatusTooManyRequests:
+		if errType == "insufficient_quota" || errCode == "insufficient_quota" || strings.Contains(errMsg, "quota") {
+			return ErrQuotaExceeded
 		}
+		return ErrRateLimit
+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return ErrProviderDown
+	default:
+		return fmt.Errorf("%w: status %d: %s", ErrUnexpected, statusCode, errMsg)
 	}
-
-	return fmt.Errorf("%w: %w", ErrUnexpected, err)
 }
