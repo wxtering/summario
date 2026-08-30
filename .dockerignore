@@ -1,0 +1,9 @@
+.git
+.github
+Dockerfile
+.dockerignore
+.env
+.env.example
+*.md
+shell.nix
+result
