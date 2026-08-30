@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  summario:
+    image: ghcr.io/wxtering/summario:0db5d4d
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    restart: unless-stopped

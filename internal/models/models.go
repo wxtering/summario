@@ -15,6 +15,7 @@ type Format string
 const (
 	FormatMarkdown  Format = "markdown"
 	FormatPlainText Format = "plain_text"
+	FormatHTML      Format = "html"
 )
 
 type Strategy string
