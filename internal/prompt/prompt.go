@@ -14,7 +14,7 @@ const (
 
 	formatMarkdownInstruction  = "Inside the 'summary' JSON field, format the text using Telegram-compatible MarkdownV2 (e.g. *bold*, _italic_, ~strikethrough~, `code`). Do NOT use unsupported Markdown features."
 	formatPlainTextInstruction = "Inside the 'summary' JSON field, format the text strictly as clean plain text without Markdown formatting, asterisks, or hashtags."
-	formatHTMLInstruction      = "Inside the 'summary' JSON field, format the text using strictly Telegram-compatible HTML tags only: <b>, <strong>, <i>, <em>, <u>, <ins>, <s>, <strike>, <del>, <span class=\"tg-spoiler\">, <a>, <code>, and <pre>. Do NOT use block elements like <p>, <ul>, <li>, <h1>-<h6> or any other unsupported tags."
+	formatHTMLInstruction      = "Inside the 'summary' JSON field, format the text using strictly Telegram-compatible HTML tags only: <b>, <strong>, <i>, <em>, <u>, <ins>, <s>, <strike>, <del>, <span class=\"tg-spoiler\">, <a>, <code>, and <pre>. Do NOT use Markdown formatting (such as **, *, _, #, or `). Do NOT use block elements like <p>, <ul>, <li>, <h1>-<h6> or any unsupported tags. For lists or bullet points, use plain newlines and unicode bullet symbols (e.g. •)."
 
 	jsonOutputInstruction = "You MUST return your response ONLY as a raw, valid JSON object with exactly two string fields: \"title\" (a concise title for the content) and \"summary\" (the generated summary text). Do NOT wrap the JSON response in markdown code blocks."
 )

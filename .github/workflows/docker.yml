@@ -62,3 +62,21 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+  deploy:
+      name: Deploy to VPS
+      needs: docker
+      runs-on: ubuntu-latest
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      
+      steps:
+        - name: Deploy via SSH
+          uses: appleboy/ssh-action@v1.2.0
+          with:
+            host: ${{ secrets.SSH_HOST }}
+            username: ${{ secrets.SSH_USER }}
+            key: ${{ secrets.SSH_KEY }}
+            script: |
+              cd /home/blackteka/tldrbot
+              docker compose pull summario
+              docker compose up -d --no-deps summario
+              docker image prune -f
