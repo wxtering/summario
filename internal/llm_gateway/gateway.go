@@ -2,6 +2,8 @@ package llmgateway
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,17 @@ import (
 	"tldr/internal/models"
 
 	"resty.dev/v3"
+)
+
+const (
+	ProviderOpenAI   = "openai"
+	ProviderOpenCode = "opencode"
+)
+
+const (
+	DefaultOpenAIBaseURL   = "https://api.openai.com/v1"
+	DefaultOpenCodeBaseURL = "https://opencode.ai/inference/go/openai/v1"
+	DefaultOpenCodeModel   = "deepseek-v4.1-flash"
 )
 
 var (
@@ -113,7 +126,7 @@ func (g *LlmGateway) GenerateSummary(ctx context.Context, p RequestParams) (LLMR
 	var err error
 
 	switch p.ProviderConfig.Provider {
-	case "openai":
+	case ProviderOpenAI, ProviderOpenCode:
 		resp, err = g.openAIRequest(ctx, p)
 	default:
 		return LLMResponse{}, fmt.Errorf("%w: %s", ErrUnsupportedProvider, p.ProviderConfig.Provider)
@@ -132,17 +145,23 @@ func (g *LlmGateway) openAIRequest(ctx context.Context, p RequestParams) (LLMRes
 		return LLMResponse{}, ErrAPIKeyRequired
 	}
 
+	model := p.ProviderConfig.Model
+	if model == "" && p.ProviderConfig.Provider == ProviderOpenCode {
+		model = DefaultOpenCodeModel
+	}
+
 	baseURL := strings.TrimRight(p.ProviderConfig.Url, "/")
 	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
+		if p.ProviderConfig.Provider == ProviderOpenCode {
+			baseURL = DefaultOpenCodeBaseURL
+		} else {
+			baseURL = DefaultOpenAIBaseURL
+		}
 	}
 	endpointURL := baseURL + "/chat/completions"
 
 	reqBody := chatCompletionRequest{
-		Model: p.ProviderConfig.Model,
-		ResponseFormat: &chatResponseFormatType{
-			Type: "json_object",
-		},
+		Model: model,
 		Messages: []chatCompletionMessage{
 			{
 				Role:    "system",
@@ -154,12 +173,33 @@ func (g *LlmGateway) openAIRequest(ctx context.Context, p RequestParams) (LLMRes
 			},
 		},
 	}
+	if p.ProviderConfig.Provider != ProviderOpenCode {
+		reqBody.ResponseFormat = &chatResponseFormatType{
+			Type: "json_object",
+		}
+	}
 
-	var chatResp chatCompletionResponse
-	resp, err := g.client.R().
+	req := g.client.R().
 		SetContext(ctx).
 		SetHeader("Content-Type", "application/json").
-		SetHeader("Authorization", "Bearer "+p.ProviderConfig.ApiKey).
+		SetHeader("Authorization", "Bearer "+p.ProviderConfig.ApiKey)
+
+	if p.ProviderConfig.Provider == ProviderOpenCode {
+		sessionID := p.ProviderConfig.Session
+		if sessionID == "" {
+			sessionID = generateSessionID()
+		}
+		req.SetHeader("x-opencode-session", sessionID)
+	} else if p.ProviderConfig.Session != "" {
+		req.SetHeader("x-opencode-session", p.ProviderConfig.Session)
+	}
+
+	for k, v := range p.ProviderConfig.Headers {
+		req.SetHeader(k, v)
+	}
+
+	var chatResp chatCompletionResponse
+	resp, err := req.
 		SetBody(reqBody).
 		SetResult(&chatResp).
 		Post(endpointURL)
@@ -191,11 +231,19 @@ func (g *LlmGateway) openAIRequest(ctx context.Context, p RequestParams) (LLMRes
 		Title:        raw.Title,
 		Summary:      raw.Summary,
 		Provider:     p.ProviderConfig.Provider,
-		Model:        p.ProviderConfig.Model,
+		Model:        model,
 		InputTokens:  chatResp.Usage.PromptTokens,
 		OutputTokens: chatResp.Usage.CompletionTokens,
 		TotalTokens:  chatResp.Usage.TotalTokens,
 	}, nil
+}
+
+func generateSessionID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("ses_%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("ses_%s", hex.EncodeToString(b))
 }
 
 // cleanJSONContent strips markdown code block fences (e.g. ```json ... ```)

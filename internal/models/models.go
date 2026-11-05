@@ -37,10 +37,12 @@ type SummarizeRequest struct {
 }
 
 type ProviderConfig struct {
-	Provider string `json:"provider"`
-	ApiKey   string `json:"api_key"`
-	Url      string `json:"url"`
-	Model    string `json:"model"`
+	Provider string            `json:"provider"`
+	ApiKey   string            `json:"api_key"`
+	Url      string            `json:"url"`
+	Model    string            `json:"model"`
+	Session  string            `json:"session,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty"`
 }
 
 type SummarizeResponse struct {

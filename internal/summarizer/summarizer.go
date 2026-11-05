@@ -50,10 +50,18 @@ func (s *Summarizer) applyDefaults(r *models.SummarizeRequest) {
 		r.ProviderConfig.ApiKey = s.cfg.LLM.DefaultKey
 	}
 	if r.ProviderConfig.Url == "" {
-		r.ProviderConfig.Url = s.cfg.LLM.DefaultURL
+		if s.cfg.LLM.DefaultURL != "" {
+			r.ProviderConfig.Url = s.cfg.LLM.DefaultURL
+		} else if r.ProviderConfig.Provider == llmgateway.ProviderOpenCode {
+			r.ProviderConfig.Url = llmgateway.DefaultOpenCodeBaseURL
+		}
 	}
 	if r.ProviderConfig.Model == "" {
-		r.ProviderConfig.Model = s.cfg.LLM.DefaultModel
+		if r.ProviderConfig.Provider == llmgateway.ProviderOpenCode && s.cfg.LLM.DefaultModel == "gpt-4o-mini" {
+			r.ProviderConfig.Model = llmgateway.DefaultOpenCodeModel
+		} else {
+			r.ProviderConfig.Model = s.cfg.LLM.DefaultModel
+		}
 	}
 }
 
